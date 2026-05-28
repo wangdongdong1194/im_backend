@@ -19,6 +19,7 @@ type ListUsersOption struct {
 type UserRepository interface {
 	Create(ctx context.Context, user *model.User) error
 	GetByID(ctx context.Context, id uint) (*model.User, error)
+	GetByERP(ctx context.Context, erp string) (*model.User, error)
 	GetByUserID(ctx context.Context, userID string) (*model.User, error)
 	GetByUsername(ctx context.Context, username string) (*model.User, error)
 	GetByEmail(ctx context.Context, email string) (*model.User, error)
@@ -55,6 +56,19 @@ func (r *GormUserRepository) GetByID(ctx context.Context, id uint) (*model.User,
 
 	var user model.User
 	if err := r.db.WithContext(ctx).First(&user, id).Error; err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
+func (r *GormUserRepository) GetByERP(ctx context.Context, erp string) (*model.User, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotReady
+	}
+
+	var user model.User
+	if err := r.db.WithContext(ctx).Where("erp = ?", erp).First(&user).Error; err != nil {
 		return nil, err
 	}
 

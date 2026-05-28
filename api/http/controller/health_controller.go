@@ -18,14 +18,14 @@ func NewHealthController(application *app.App) *HealthController {
 
 func (ctl *HealthController) Health(c *gin.Context) {
 	if ctl == nil || ctl.app == nil || ctl.app.HealthService == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "health service not ready"})
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "health service not ready", "code": 40000})
 		return
 	}
 
 	if err := ctl.app.HealthService.MarkHealthy(c.Request.Context()); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error(), "code": 40003})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	c.JSON(http.StatusOK, gin.H{"message": "ok", "code": 20000})
 }

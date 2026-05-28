@@ -47,15 +47,15 @@ func NewUserService(
 	}
 }
 
-func (s *UserService) GetByID(ctx context.Context, id uint) (*model.User, error) {
+func (s *UserService) GetByERP(ctx context.Context, erp string) (*model.User, error) {
 	if s == nil || s.userRepo == nil {
 		return nil, ErrUserServiceNotReady
 	}
-	if id == 0 {
+	if erp == "" {
 		return nil, ErrInvalidFriendERP
 	}
 
-	user, err := s.userRepo.GetByID(ctx, id)
+	user, err := s.userRepo.GetByERP(ctx, erp)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUserNotFound

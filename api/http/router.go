@@ -19,7 +19,7 @@ func NewRouter(application *app.App, socketHandler http.Handler) *gin.Engine {
 
 	r.GET("/health", healthController.Health)
 	r.GET("/mysql/test-read", mySQLController.TestRead)
-	r.GET("/users/:id", userController.GetByID)
+	r.GET("/users/:erp", userController.GetByErp)
 	r.POST("/accounts/apply", userController.ApplyAccount)
 	r.POST("/friend-requests/apply", userController.ApplyFriendRequest)
 	r.POST("/friend-requests/:id/accept", userController.AcceptFriendRequest)

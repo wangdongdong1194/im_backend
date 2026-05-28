@@ -21,13 +21,13 @@ func NewChatController(application *app.App) *ChatController {
 
 func (c *ChatController) ListConversationMessages(ctx *gin.Context) {
 	if c == nil || c.application == nil || c.application.ChatService == nil {
-		ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "chat service not ready"})
+		ctx.JSON(http.StatusServiceUnavailable, gin.H{"message": "chat service not ready", "code": 40000})
 		return
 	}
 
 	conversationID, err := strconv.ParseUint(ctx.Param("id"), 10, 64)
 	if err != nil || conversationID == 0 {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid conversation id"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid conversation id", "code": 40001})
 		return
 	}
 
@@ -36,7 +36,7 @@ func (c *ChatController) ListConversationMessages(ctx *gin.Context) {
 	if beforeRaw != "" {
 		parsed, parseErr := strconv.ParseUint(beforeRaw, 10, 64)
 		if parseErr != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid beforeId"})
+			ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid beforeId", "code": 40001})
 			return
 		}
 		beforeID = parsed
@@ -44,13 +44,13 @@ func (c *ChatController) ListConversationMessages(ctx *gin.Context) {
 
 	offset, err := parseIntWithDefault(ctx.Query("offset"), 0)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid offset"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid offset", "code": 40001})
 		return
 	}
 
 	limit, err := parseIntWithDefault(ctx.Query("limit"), 20)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid limit"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid limit", "code": 40001})
 		return
 	}
 
@@ -64,16 +64,16 @@ func (c *ChatController) ListConversationMessages(ctx *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidConversationID):
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid conversation id"})
+			ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid conversation id", "code": 40001})
 		case errors.Is(err, service.ErrChatServiceNotReady):
-			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "chat service not ready"})
+			ctx.JSON(http.StatusServiceUnavailable, gin.H{"message": "chat service not ready", "code": 40000})
 		default:
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "query messages failed"})
+			ctx.JSON(http.StatusInternalServerError, gin.H{"message": "query messages failed", "code": 40003})
 		}
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{"items": messages})
+	ctx.JSON(http.StatusOK, gin.H{"message": "ok", "code": 20000, "data": messages})
 }
 
 func parseIntWithDefault(raw string, fallback int) (int, error) {
