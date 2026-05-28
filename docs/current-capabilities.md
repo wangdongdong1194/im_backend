@@ -15,8 +15,15 @@
   - Redis 健康标记与基本存活检查
 - `GET /mysql/test-read`
   - MySQL 连通性测试读取
-- `GET /users/:id`
-  - 用户按 ID 查询
+- `GET /users/:erp`
+  - 用户按 ERP 查询
+- `POST /accounts/apply`
+  - 用户申请账号
+- `POST /friend-requests/apply`
+  - 发起好友申请
+- `POST /friend-requests/:erp/handle`
+  - 处理好友申请（合并 accept/reject）
+  - 请求体示例：`{ "operatorErp": "zhangsan", "action": "accept|reject", "remark": "可选" }`
 - `GET /conversations/:id/messages`
   - 会话消息分页查询（支持 `beforeId`、`offset`、`limit`）
 

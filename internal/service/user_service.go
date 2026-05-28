@@ -83,11 +83,18 @@ func (s *UserService) ApplyAccount(
 	erp = strings.TrimSpace(erp)
 	username = strings.TrimSpace(username)
 	nickname = strings.TrimSpace(nickname)
-	if erp == "" || username == "" || nickname == "" || password == "" {
+	password = strings.TrimSpace(password)
+	if erp == "" || password == "" {
 		return nil, ErrInvalidAccountPayload
 	}
+	if username == "" {
+		username = erp
+	}
+	if nickname == "" {
+		nickname = username
+	}
 
-	if _, err := s.userRepo.GetByUserID(ctx, erp); err == nil {
+	if _, err := s.userRepo.GetByERP(ctx, erp); err == nil {
 		return nil, ErrERPAlreadyExists
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
@@ -104,10 +111,15 @@ func (s *UserService) ApplyAccount(
 		return nil, err
 	}
 
+	usernameValue := username
+	nicknameValue := nickname
+
 	user := &model.User{
 		Erp:          erp,
-		Username:     username,
-		Nickname:     nickname,
+		Username:     &usernameValue,
+		Nickname:     &nicknameValue,
+		Email:        nil,
+		Phone:        nil,
 		PasswordHash: string(hashBytes),
 		Status:       "active",
 	}
@@ -190,39 +202,22 @@ func (s *UserService) ApplyFriendRequest(ctx context.Context, fromERP string, to
 	return request, nil
 }
 
-func (s *UserService) AcceptFriendRequest(ctx context.Context, requestID uint, operatorERP string, remark string) error {
-	if s == nil || s.friendRequestRepo == nil || s.friendshipRepo == nil {
+func (s *UserService) AcceptFriendRequest(ctx context.Context, erp string, operatorERP string, remark string) error {
+	if s == nil || s.userRepo == nil || s.friendRequestRepo == nil || s.friendshipRepo == nil {
 		return ErrUserServiceNotReady
 	}
-	if requestID == 0 {
-		return ErrInvalidFriendRequestID
+	erp = strings.TrimSpace(erp)
+	if erp == "" {
+		return ErrInvalidFriendERP
 	}
 	operatorERP = strings.TrimSpace(operatorERP)
 	if operatorERP == "" {
 		return ErrInvalidFriendERP
 	}
 
-	operatorUser, err := s.userRepo.GetByUserID(ctx, operatorERP)
+	request, err := s.findPendingFriendRequestByERP(ctx, erp, operatorERP)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrUserNotFound
-		}
 		return err
-	}
-
-	request, err := s.friendRequestRepo.GetByID(ctx, requestID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrFriendRequestNotFound
-		}
-		return err
-	}
-
-	if request.ToUserID != operatorUser.ID {
-		return ErrFriendRequestForbidden
-	}
-	if request.Status != "pending" {
-		return ErrFriendRequestHandled
 	}
 
 	if _, err := s.friendshipRepo.GetByPair(ctx, request.FromUserID, request.ToUserID); err == nil {
@@ -260,39 +255,22 @@ func (s *UserService) AcceptFriendRequest(ctx context.Context, requestID uint, o
 	return nil
 }
 
-func (s *UserService) RejectFriendRequest(ctx context.Context, requestID uint, operatorERP string) error {
-	if s == nil || s.friendRequestRepo == nil {
+func (s *UserService) RejectFriendRequest(ctx context.Context, erp string, operatorERP string) error {
+	if s == nil || s.userRepo == nil || s.friendRequestRepo == nil {
 		return ErrUserServiceNotReady
 	}
-	if requestID == 0 {
-		return ErrInvalidFriendRequestID
+	erp = strings.TrimSpace(erp)
+	if erp == "" {
+		return ErrInvalidFriendERP
 	}
 	operatorERP = strings.TrimSpace(operatorERP)
 	if operatorERP == "" {
 		return ErrInvalidFriendERP
 	}
 
-	operatorUser, err := s.userRepo.GetByUserID(ctx, operatorERP)
+	request, err := s.findPendingFriendRequestByERP(ctx, erp, operatorERP)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrUserNotFound
-		}
 		return err
-	}
-
-	request, err := s.friendRequestRepo.GetByID(ctx, requestID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrFriendRequestNotFound
-		}
-		return err
-	}
-
-	if request.ToUserID != operatorUser.ID {
-		return ErrFriendRequestForbidden
-	}
-	if request.Status != "pending" {
-		return ErrFriendRequestHandled
 	}
 
 	now := time.Now()
@@ -304,4 +282,40 @@ func (s *UserService) RejectFriendRequest(ctx context.Context, requestID uint, o
 	}
 
 	return nil
+}
+
+func (s *UserService) findPendingFriendRequestByERP(ctx context.Context, fromERP string, toERP string) (*model.FriendRequest, error) {
+	fromUser, err := s.userRepo.GetByERP(ctx, fromERP)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+
+	toUser, err := s.userRepo.GetByERP(ctx, toERP)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+
+	pendingRequests, err := s.friendRequestRepo.ListByToUser(ctx, repository.ListFriendRequestsOption{
+		ToUserID: toUser.ID,
+		Status:   "pending",
+		Limit:    200,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, item := range pendingRequests {
+		if item.FromUserID == fromUser.ID {
+			req := item
+			return &req, nil
+		}
+	}
+
+	return nil, ErrFriendRequestNotFound
 }

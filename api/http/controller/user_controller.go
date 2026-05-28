@@ -3,7 +3,6 @@ package controller
 import (
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"im_backend/internal/app"
@@ -17,10 +16,14 @@ type UserController struct {
 }
 
 type applyAccountBody struct {
-	ERP      string `json:"erp"`
-	Username string `json:"username"`
-	Nickname string `json:"nickname"`
-	Password string `json:"password"`
+	ERP       string  `json:"erp"`
+	Password  string  `json:"password"`
+	Username  *string `json:"username,omitempty"`
+	Nickname  *string `json:"nickname,omitempty"`
+	AvatarURL *string `json:"avatarUrl,omitempty"`
+	Bio       *string `json:"bio,omitempty"`
+	Email     *string `json:"email,omitempty"`
+	Phone     *string `json:"phone,omitempty"`
 }
 
 type applyFriendRequestBody struct {
@@ -30,7 +33,8 @@ type applyFriendRequestBody struct {
 }
 
 type handleFriendRequestBody struct {
-	OperatorERP string `json:"operatorErp"`
+	OperatorERP string `json:"operatorErp"` // 被请求方的ERP
+	Action      string `json:"action"`      // accept / reject
 	Remark      string `json:"remark"`
 }
 
@@ -43,7 +47,7 @@ func (ctl *UserController) GetByErp(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "user service not ready"})
 		return
 	}
-	
+
 	// 取参数并去除首尾空格
 	erpValue := strings.TrimSpace(c.Param("erp"))
 	if erpValue == "" {
@@ -64,6 +68,7 @@ func (ctl *UserController) GetByErp(c *gin.Context) {
 
 	c.JSON(http.StatusOK, user)
 }
+
 // 申请账号
 func (ctl *UserController) ApplyAccount(c *gin.Context) {
 	if ctl == nil || ctl.app == nil || ctl.app.UserService == nil {
@@ -77,7 +82,17 @@ func (ctl *UserController) ApplyAccount(c *gin.Context) {
 		return
 	}
 
-	ctl.createAccount(c, body.ERP, body.Username, body.Nickname, body.Password, "apply account failed")
+	username := ""
+	if body.Username != nil {
+		username = strings.TrimSpace(*body.Username)
+	}
+
+	nickname := ""
+	if body.Nickname != nil {
+		nickname = strings.TrimSpace(*body.Nickname)
+	}
+
+	ctl.createAccount(c, body.ERP, username, nickname, body.Password, "apply account failed")
 }
 
 func (ctl *UserController) createAccount(c *gin.Context, erp string, username string, nickname string, password string, failedMessage string) {
@@ -131,15 +146,15 @@ func (ctl *UserController) ApplyFriendRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "friend request created successfully", "code": 20000, "data": request})
 }
 
-func (ctl *UserController) AcceptFriendRequest(c *gin.Context) {
+func (ctl *UserController) HandleFriendRequest(c *gin.Context) {
 	if ctl == nil || ctl.app == nil || ctl.app.UserService == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "user service not ready", "code": 40000})
 		return
 	}
 
-	idValue, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil || idValue == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid friend request id", "code": 40001})
+	erpValue := strings.TrimSpace(c.Param("erp"))
+	if erpValue == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid friend request erp", "code": 40001})
 		return
 	}
 
@@ -149,12 +164,27 @@ func (ctl *UserController) AcceptFriendRequest(c *gin.Context) {
 		return
 	}
 
-	err = ctl.app.UserService.AcceptFriendRequest(c.Request.Context(), uint(idValue), body.OperatorERP, body.Remark)
+	action := strings.ToLower(strings.TrimSpace(body.Action))
+	if action != "accept" && action != "reject" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid action, only accept or reject is allowed", "code": 40001})
+		return
+	}
+
+	var err error
+	failedMessage := "handle friend request failed"
+	if action == "accept" {
+		err = ctl.app.UserService.AcceptFriendRequest(c.Request.Context(), erpValue, body.OperatorERP, body.Remark)
+		failedMessage = "accept friend request failed"
+	} else {
+		err = ctl.app.UserService.RejectFriendRequest(c.Request.Context(), erpValue, body.OperatorERP)
+		failedMessage = "reject friend request failed"
+	}
+
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrUserServiceNotReady):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"message": "user service not ready", "code": 40000})
-		case errors.Is(err, service.ErrInvalidFriendRequestID), errors.Is(err, service.ErrInvalidFriendERP):
+		case errors.Is(err, service.ErrInvalidFriendERP), errors.Is(err, service.ErrInvalidFriendRequestID):
 			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "code": 40001})
 		case errors.Is(err, service.ErrFriendRequestNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"message": "friend request not found", "code": 40004})
@@ -163,47 +193,7 @@ func (ctl *UserController) AcceptFriendRequest(c *gin.Context) {
 		case errors.Is(err, service.ErrFriendRequestHandled), errors.Is(err, service.ErrAlreadyFriends):
 			c.JSON(http.StatusConflict, gin.H{"message": err.Error(), "code": 40002})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"message": "accept friend request failed", "code": 40003})
-		}
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "ok", "code": 20000})
-}
-
-func (ctl *UserController) RejectFriendRequest(c *gin.Context) {
-	if ctl == nil || ctl.app == nil || ctl.app.UserService == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "user service not ready", "code": 40000})
-		return
-	}
-
-	idValue, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil || idValue == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid friend request id", "code": 40001})
-		return
-	}
-
-	var body handleFriendRequestBody
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request body", "code": 40001})
-		return
-	}
-
-	err = ctl.app.UserService.RejectFriendRequest(c.Request.Context(), uint(idValue), body.OperatorERP)
-	if err != nil {
-		switch {
-		case errors.Is(err, service.ErrUserServiceNotReady):
-			c.JSON(http.StatusServiceUnavailable, gin.H{"message": "user service not ready", "code": 40000})
-		case errors.Is(err, service.ErrInvalidFriendRequestID), errors.Is(err, service.ErrInvalidFriendERP):
-			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "code": 40001})
-		case errors.Is(err, service.ErrFriendRequestNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"message": "friend request not found", "code": 40004})
-		case errors.Is(err, service.ErrFriendRequestForbidden):
-			c.JSON(http.StatusForbidden, gin.H{"message": "cannot operate this friend request", "code": 40005})
-		case errors.Is(err, service.ErrFriendRequestHandled):
-			c.JSON(http.StatusConflict, gin.H{"message": err.Error(), "code": 40002})
-		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"message": "reject friend request failed", "code": 40003})
+			c.JSON(http.StatusInternalServerError, gin.H{"message": failedMessage, "code": 40003})
 		}
 		return
 	}

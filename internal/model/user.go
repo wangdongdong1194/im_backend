@@ -9,10 +9,10 @@ import (
 type User struct {
 	ID           uint           `gorm:"primaryKey;comment:用户ID" json:"id"`
 	Erp          string         `gorm:"size:64;not null;uniqueIndex;comment:用户erp，登录使用" json:"erp"`
-	Username     string         `gorm:"size:64;not null;uniqueIndex;comment:用户名" json:"username"`
-	Nickname     string         `gorm:"size:64;not null;comment:昵称" json:"nickname"`
-	AvatarURL    string         `gorm:"size:255;comment:头像URL" json:"avatarUrl"`
-	Bio          string         `gorm:"size:255;comment:个人简介" json:"bio"`
+	Username     *string        `gorm:"size:64;comment:用户名" json:"username,omitempty"`
+	Nickname     *string        `gorm:"size:64;comment:昵称" json:"nickname,omitempty"`
+	AvatarURL    *string        `gorm:"size:255;comment:头像URL" json:"avatarUrl,omitempty"`
+	Bio          *string        `gorm:"size:255;comment:个人简介" json:"bio,omitempty"`
 	Email        *string        `gorm:"size:128;uniqueIndex;comment:邮箱地址" json:"email,omitempty"`
 	Phone        *string        `gorm:"size:32;uniqueIndex;comment:手机号" json:"phone,omitempty"`
 	PasswordHash string         `gorm:"size:255;not null" json:"-"`
