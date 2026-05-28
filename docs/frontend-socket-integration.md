@@ -37,8 +37,13 @@
 - 失败回执: send_to_user_error
   - missing payload
   - payload should contain toUserId and message
+  - bind_user required
   - target user offline
   - rate limit exceeded
+
+说明:
+
+- send_to_user 与 send_to_group 一样，发送前必须先完成 bind_user。
 
 ### 3) 接收私聊消息
 

@@ -432,6 +432,16 @@ func registerEvents(server *socketio.Server, application *app.App) {
 				return
 			}
 
+			if socketService == nil {
+				cli.Emit("send_to_user_error", "socket service not ready")
+				return
+			}
+
+			if _, bound := socketService.GetUserIDBySocketID(string(cli.Id())); !bound {
+				cli.Emit("send_to_user_error", "bind_user required")
+				return
+			}
+
 			if len(args) == 0 {
 				cli.Emit("send_to_user_error", "missing payload")
 				return
@@ -439,11 +449,6 @@ func registerEvents(server *socketio.Server, application *app.App) {
 			payload, ok := parseSendToUserPayload(args[0])
 			if !ok {
 				cli.Emit("send_to_user_error", "payload should contain toUserId and message")
-				return
-			}
-
-			if socketService == nil {
-				cli.Emit("send_to_user_error", "socket service not ready")
 				return
 			}
 
