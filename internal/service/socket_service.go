@@ -7,59 +7,59 @@ import (
 )
 
 var (
-	ErrInvalidUserID     = errors.New("invalid user id")
-	ErrInvalidTargetUser = errors.New("invalid target user")
+	ErrInvalidErp     = errors.New("invalid erp")
+	ErrInvalidTargetErp = errors.New("invalid target erp")
 	ErrInvalidMessage    = errors.New("invalid message")
-	ErrTargetUserOffline = errors.New("target user offline")
+	ErrTargetErpOffline = errors.New("target erp offline")
 )
 
 type SocketBindingStore interface {
-	Bind(ctx context.Context, userID string, socketID string) error
+	Bind(ctx context.Context, erp string, socketID string) error
 	UnbindBySocketID(ctx context.Context, socketID string) error
-	GetSocketIDByUserID(ctx context.Context, userID string) (string, error)
+	GetSocketIDByErp(ctx context.Context, erp string) (string, error)
 }
 
 type SocketService struct {
 	store        SocketBindingStore
 	mu           sync.RWMutex
-	userToSocket map[string]string
-	socketToUser map[string]string
+	erpToSocket map[string]string
+	socketToErp map[string]string
 }
 
 func NewSocketService(store SocketBindingStore) *SocketService {
 	return &SocketService{
 		store:        store,
-		userToSocket: make(map[string]string),
-		socketToUser: make(map[string]string),
+		erpToSocket: make(map[string]string),
+		socketToErp: make(map[string]string),
 	}
 }
 
-func (s *SocketService) BindUser(ctx context.Context, userID string, socketID string) error {
-	if userID == "" {
-		return ErrInvalidUserID
+func (s *SocketService) BindUser(ctx context.Context, erp string, socketID string) error {
+	if erp == "" {
+		return ErrInvalidErp
 	}
 
 	s.mu.Lock()
-	if oldSocketID, ok := s.userToSocket[userID]; ok && oldSocketID != "" {
-		delete(s.socketToUser, oldSocketID)
+	if oldSocketID, ok := s.erpToSocket[erp]; ok && oldSocketID != "" {
+		delete(s.socketToErp, oldSocketID)
 	}
 
-	s.userToSocket[userID] = socketID
-	s.socketToUser[socketID] = userID
+	s.erpToSocket[erp] = socketID
+	s.socketToErp[socketID] = erp
 	s.mu.Unlock()
 
 	if s.store == nil {
 		return nil
 	}
 
-	return s.store.Bind(ctx, userID, socketID)
+	return s.store.Bind(ctx, erp, socketID)
 }
 
 func (s *SocketService) UnbindBySocketID(ctx context.Context, socketID string) error {
 	s.mu.Lock()
-	if userID, ok := s.socketToUser[socketID]; ok {
-		delete(s.socketToUser, socketID)
-		delete(s.userToSocket, userID)
+	if erp, ok := s.socketToErp[socketID]; ok {
+		delete(s.socketToErp, socketID)
+		delete(s.erpToSocket, erp)
 	}
 	s.mu.Unlock()
 
@@ -70,11 +70,11 @@ func (s *SocketService) UnbindBySocketID(ctx context.Context, socketID string) e
 	return s.store.UnbindBySocketID(ctx, socketID)
 }
 
-func (s *SocketService) GetSocketIDByUserID(userID string) (string, bool) {
+func (s *SocketService) GetSocketIDByErp(erp string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	socketID, ok := s.userToSocket[userID]
+	socketID, ok := s.erpToSocket[erp]
 	if !ok || socketID == "" {
 		return "", false
 	}
@@ -82,39 +82,39 @@ func (s *SocketService) GetSocketIDByUserID(userID string) (string, bool) {
 	return socketID, true
 }
 
-func (s *SocketService) GetUserIDBySocketID(socketID string) (string, bool) {
+func (s *SocketService) GetErpBySocketID(socketID string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	userID, ok := s.socketToUser[socketID]
-	if !ok || userID == "" {
+	erp, ok := s.socketToErp[socketID]
+	if !ok || erp == "" {
 		return "", false
 	}
 
-	return userID, true
+	return erp, true
 }
 
-func (s *SocketService) ResolveTargetSocketID(ctx context.Context, toUserID string, message string) (string, error) {
-	if toUserID == "" {
-		return "", ErrInvalidTargetUser
+func (s *SocketService) ResolveTargetSocketID(ctx context.Context, toErp string, message string) (string, error) {
+	if toErp == "" {
+		return "", ErrInvalidTargetErp
 	}
 
 	if message == "" {
 		return "", ErrInvalidMessage
 	}
 
-	socketID, found := s.GetSocketIDByUserID(toUserID)
+	socketID, found := s.GetSocketIDByErp(toErp)
 	if found {
 		return socketID, nil
 	}
 
 	if s.store == nil {
-		return "", ErrTargetUserOffline
+		return "", ErrTargetErpOffline
 	}
 
-	socketID, err := s.store.GetSocketIDByUserID(ctx, toUserID)
+	socketID, err := s.store.GetSocketIDByErp(ctx, toErp)
 	if err != nil || socketID == "" {
-		return "", ErrTargetUserOffline
+		return "", ErrTargetErpOffline
 	}
 
 	return socketID, nil

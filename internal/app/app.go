@@ -24,6 +24,7 @@ type App struct {
 	ChatService        *service.ChatService
 	HealthService      *service.HealthService
 	UserService        *service.UserService
+	LoginTokenStore    *redisstore.LoginTokenStore
 }
 
 func New(ctx context.Context) (*App, error) {
@@ -39,6 +40,8 @@ func New(ctx context.Context) (*App, error) {
 	var mysqlDB *gorm.DB
 	var userService *service.UserService
 	var chatService *service.ChatService
+	var loginTokenStore *redisstore.LoginTokenStore
+
 	if cfg.MySQLDSN != "" {
 		db, err := gorm.Open(mysql.Open(cfg.MySQLDSN), &gorm.Config{})
 		if err != nil {
@@ -72,7 +75,8 @@ func New(ctx context.Context) (*App, error) {
 		userRepo := repository.NewGormUserRepository(db)
 		friendRequestRepo := repository.NewGormFriendRequestRepository(db)
 		friendshipRepo := repository.NewGormFriendshipRepository(db)
-		userService = service.NewUserService(userRepo, friendRequestRepo, friendshipRepo)
+		loginTokenStore = redisstore.NewLoginTokenStore(redisClient, cfg.RedisKeyPrefix)
+		userService = service.NewUserService(userRepo, friendRequestRepo, friendshipRepo, loginTokenStore)
 		conversationRepo := repository.NewGormConversationRepository(db)
 		conversationMemberRepo := repository.NewGormConversationMemberRepository(db)
 		messageRepo := repository.NewGormMessageRepository(db)
@@ -88,6 +92,8 @@ func New(ctx context.Context) (*App, error) {
 		ChatService:        chatService,
 		HealthService:      service.NewHealthService(redisClient, cfg.RedisKeyPrefix),
 		UserService:        userService,
+
+		LoginTokenStore: loginTokenStore,
 	}, nil
 }
 

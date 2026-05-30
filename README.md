@@ -58,3 +58,7 @@ go fmt ./...
 - `REDIS_PASSWORD`: Redis 密码，默认空
 - `REDIS_DB`: Redis 数据库编号，默认 `0`
 - `REDIS_KEY_PREFIX`: Redis key 前缀，默认 `im_backend`
+
+## 调试准备
+
+- go install github.com/go-delve/delve/cmd/dlv@latest

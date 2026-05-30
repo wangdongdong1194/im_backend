@@ -94,6 +94,12 @@ func (s *SocketBindingStore) GetSocketIDByUserID(ctx context.Context, userID str
 	return socketID, nil
 }
 
+// GetSocketIDByErp is an alias for GetSocketIDByUserID to satisfy the
+// service.SocketBindingStore interface where the user identifier is an ERP.
+func (s *SocketBindingStore) GetSocketIDByErp(ctx context.Context, erp string) (string, error) {
+	return s.GetSocketIDByUserID(ctx, erp)
+}
+
 func (s *SocketBindingStore) userKey(userID string) string {
 	return fmt.Sprintf("%s:socket:user:%s", s.keyPrefix, userID)
 }

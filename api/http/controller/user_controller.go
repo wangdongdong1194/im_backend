@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"im_backend/internal/app"
+	"im_backend/internal/dto"
 	"im_backend/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -15,31 +16,34 @@ type UserController struct {
 	app *app.App
 }
 
-type applyAccountBody struct {
-	ERP       string  `json:"erp"`
-	Password  string  `json:"password"`
-	Username  *string `json:"username,omitempty"`
-	Nickname  *string `json:"nickname,omitempty"`
-	AvatarURL *string `json:"avatarUrl,omitempty"`
-	Bio       *string `json:"bio,omitempty"`
-	Email     *string `json:"email,omitempty"`
-	Phone     *string `json:"phone,omitempty"`
-}
-
-type applyFriendRequestBody struct {
-	FromERP     string `json:"fromErp"`
-	ToERP       string `json:"toErp"`
-	ApplyReason string `json:"applyReason"`
-}
-
-type handleFriendRequestBody struct {
-	OperatorERP string `json:"operatorErp"` // 被请求方的ERP
-	Action      string `json:"action"`      // accept / reject
-	Remark      string `json:"remark"`
-}
-
 func NewUserController(application *app.App) *UserController {
 	return &UserController{app: application}
+}
+
+// 登录接口
+func (ctl *UserController) Login(c *gin.Context) {
+	if ctl == nil || ctl.app == nil || ctl.app.UserService == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "user service not ready", "code": 40000})
+		return
+	}
+
+	var req dto.LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request body", "code": 40001})
+		return
+	}
+
+	token, user, err := ctl.app.UserService.Login(c.Request.Context(), req.ERP, req.Password)
+	if err != nil {
+		if errors.Is(err, service.ErrUserNotFound) || errors.Is(err, service.ErrInvalidAccountPayload) {
+			c.JSON(http.StatusUnauthorized, gin.H{"message": "invalid credentials", "code": 40002})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error(), "code": 40003})
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.LoginResponse{Token: token, User: user})
 }
 
 func (ctl *UserController) GetByErp(c *gin.Context) {
@@ -76,27 +80,17 @@ func (ctl *UserController) ApplyAccount(c *gin.Context) {
 		return
 	}
 
-	var body applyAccountBody
+	var body dto.ApplyAccountBody
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request body", "code": 40001})
 		return
 	}
 
-	username := ""
-	if body.Username != nil {
-		username = strings.TrimSpace(*body.Username)
-	}
-
-	nickname := ""
-	if body.Nickname != nil {
-		nickname = strings.TrimSpace(*body.Nickname)
-	}
-
-	ctl.createAccount(c, body.ERP, username, nickname, body.Password, "apply account failed")
+	ctl.createAccount(c, body, "apply account failed")
 }
 
-func (ctl *UserController) createAccount(c *gin.Context, erp string, username string, nickname string, password string, failedMessage string) {
-	user, err := ctl.app.UserService.ApplyAccount(c.Request.Context(), erp, username, nickname, password)
+func (ctl *UserController) createAccount(c *gin.Context, body dto.ApplyAccountBody, failedMessage string) {
+	user, err := ctl.app.UserService.ApplyAccount(c.Request.Context(), body)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrUserServiceNotReady):
@@ -120,13 +114,13 @@ func (ctl *UserController) ApplyFriendRequest(c *gin.Context) {
 		return
 	}
 
-	var body applyFriendRequestBody
+	var body dto.ApplyFriendRequestBody
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request body", "code": 40001})
 		return
 	}
 
-	request, err := ctl.app.UserService.ApplyFriendRequest(c.Request.Context(), body.FromERP, body.ToERP, body.ApplyReason)
+	request, err := ctl.app.UserService.ApplyFriendRequest(c.Request.Context(), body)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrUserServiceNotReady):
@@ -158,7 +152,7 @@ func (ctl *UserController) HandleFriendRequest(c *gin.Context) {
 		return
 	}
 
-	var body handleFriendRequestBody
+	var body dto.HandleFriendRequestBody
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request body", "code": 40001})
 		return
@@ -173,10 +167,10 @@ func (ctl *UserController) HandleFriendRequest(c *gin.Context) {
 	var err error
 	failedMessage := "handle friend request failed"
 	if action == "accept" {
-		err = ctl.app.UserService.AcceptFriendRequest(c.Request.Context(), erpValue, body.OperatorERP, body.Remark)
+		err = ctl.app.UserService.AcceptFriendRequest(c.Request.Context(), erpValue, body)
 		failedMessage = "accept friend request failed"
 	} else {
-		err = ctl.app.UserService.RejectFriendRequest(c.Request.Context(), erpValue, body.OperatorERP)
+		err = ctl.app.UserService.RejectFriendRequest(c.Request.Context(), erpValue, body)
 		failedMessage = "reject friend request failed"
 	}
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"im_backend/internal/app"
+	"im_backend/internal/dto"
 	"im_backend/internal/service"
 	"log"
 	"strconv"
@@ -16,58 +17,6 @@ import (
 	socketio "github.com/zishang520/socket.io/servers/socket/v3"
 	"github.com/zishang520/socket.io/v3/pkg/types"
 )
-
-type bindUserOKResponse struct {
-	UserID string `json:"userId"`
-}
-
-type bindUserPayload struct {
-	UserID string `json:"userId"`
-}
-
-type sendToUserPayload struct {
-	ToUserID string `json:"toUserId"`
-	Message  string `json:"message"`
-}
-
-type sendToUserOKResponse struct {
-	ToUserID string `json:"toUserId"`
-}
-
-type privateMessagePayload struct {
-	Message string `json:"message"`
-}
-
-type crossNodePrivateMessage struct {
-	Event          string `json:"event"`
-	ToUserID       string `json:"toUserId"`
-	FromUserID     string `json:"fromUserId,omitempty"`
-	ConversationID uint   `json:"conversationId,omitempty"`
-	MessageID      uint   `json:"messageId,omitempty"`
-	CreatedAt      string `json:"createdAt,omitempty"`
-	Message        string `json:"message"`
-}
-
-type sendToGroupPayload struct {
-	ConversationID uint   `json:"conversationId"`
-	Message        string `json:"message"`
-	ClientMsgID    string `json:"clientMsgId"`
-}
-
-type groupMessagePayload struct {
-	ConversationID uint   `json:"conversationId"`
-	FromUserID     string `json:"fromUserId"`
-	MessageID      uint   `json:"messageId"`
-	Message        string `json:"message"`
-	CreatedAt      string `json:"createdAt"`
-}
-
-type sendToGroupOKResponse struct {
-	ConversationID uint `json:"conversationId"`
-	MessageID      uint `json:"messageId"`
-	RecipientCount int  `json:"recipientCount"`
-	Deduplicated   bool `json:"deduplicated"`
-}
 
 type socketRateState struct {
 	lastRefill time.Time
@@ -193,51 +142,51 @@ func decodePayload[T any](v any) (T, bool) {
 	return out, true
 }
 
-func parseBindUserPayload(v any) (bindUserPayload, bool) {
+func parseBindUserPayload(v any) (dto.BindUserPayload, bool) {
 	obj, isMap := v.(map[string]any)
 	if !isMap {
-		return bindUserPayload{}, false
+		return dto.BindUserPayload{}, false
 	}
 
-	payload, ok := decodePayload[bindUserPayload](obj)
-	if !ok || payload.UserID == "" {
-		return bindUserPayload{}, false
-	}
-
-	return payload, true
-}
-
-func parseSendToUserPayload(v any) (sendToUserPayload, bool) {
-	payload, ok := decodePayload[sendToUserPayload](v)
-	if !ok || payload.ToUserID == "" || payload.Message == "" {
-		return sendToUserPayload{}, false
+	payload, ok := decodePayload[dto.BindUserPayload](obj)
+	if !ok || payload.ERP == "" || payload.Token == "" {
+		return dto.BindUserPayload{}, false
 	}
 
 	return payload, true
 }
 
-func parseSendToGroupPayload(v any) (sendToGroupPayload, bool) {
-	payload, ok := decodePayload[sendToGroupPayload](v)
+func parseSendToUserPayload(v any) (dto.SendToUserPayload, bool) {
+	payload, ok := decodePayload[dto.SendToUserPayload](v)
+	if !ok || payload.ToERP == "" || payload.Message == "" {
+		return dto.SendToUserPayload{}, false
+	}
+
+	return payload, true
+}
+
+func parseSendToGroupPayload(v any) (dto.SendToGroupPayload, bool) {
+	payload, ok := decodePayload[dto.SendToGroupPayload](v)
 	if !ok || payload.ConversationID == 0 || payload.Message == "" {
-		return sendToGroupPayload{}, false
+		return dto.SendToGroupPayload{}, false
 	}
 
 	return payload, true
 }
 
-func buildPrivateMessageEvent(toUserID string, message string) crossNodePrivateMessage {
-	return crossNodePrivateMessage{
-		Event:    "private_message",
-		ToUserID: toUserID,
-		Message:  message,
+func buildPrivateMessageEvent(toERP string, message string) dto.CrossNodePrivateMessage {
+	return dto.CrossNodePrivateMessage{
+		Event:   "private_message",
+		ToERP:   toERP,
+		Message: message,
 	}
 }
 
-func buildGroupMessageEvent(toUserID string, fromUserID string, conversationID uint, messageID uint, createdAt string, message string) crossNodePrivateMessage {
-	return crossNodePrivateMessage{
+func buildGroupMessageEvent(toERP string, fromERP string, conversationID uint, messageID uint, createdAt string, message string) dto.CrossNodePrivateMessage {
+	return dto.CrossNodePrivateMessage{
 		Event:          "group_message",
-		ToUserID:       toUserID,
-		FromUserID:     fromUserID,
+		ToERP:          toERP,
+		FromERP:        fromERP,
 		ConversationID: conversationID,
 		MessageID:      messageID,
 		CreatedAt:      createdAt,
@@ -254,7 +203,7 @@ func privateMessageChannel(keyPrefix string) string {
 	return fmt.Sprintf("%s:socket:private_message", prefix)
 }
 
-func publishCrossNodePrivateMessage(application *app.App, event crossNodePrivateMessage) error {
+func publishCrossNodePrivateMessage(application *app.App, event dto.CrossNodePrivateMessage) error {
 	if application == nil || application.RedisClient == nil {
 		return errors.New("redis client not ready")
 	}
@@ -289,13 +238,13 @@ func startCrossNodePrivateMessageConsumer(application *app.App, socketService *s
 				continue
 			}
 
-			var event crossNodePrivateMessage
+			var event dto.CrossNodePrivateMessage
 			if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
 				log.Println("decode cross-node private message failed:", err)
 				continue
 			}
 
-			targetSocketID, found := socketService.GetSocketIDByUserID(event.ToUserID)
+			targetSocketID, found := socketService.GetSocketIDByErp(event.ToERP)
 			if !found {
 				continue
 			}
@@ -307,15 +256,15 @@ func startCrossNodePrivateMessageConsumer(application *app.App, socketService *s
 
 			switch event.Event {
 			case "group_message":
-				target.Emit("group_message", groupMessagePayload{
+				target.Emit("group_message", dto.GroupMessagePayload{
 					ConversationID: event.ConversationID,
-					FromUserID:     event.FromUserID,
+					FromERP:        event.FromERP,
 					MessageID:      event.MessageID,
 					Message:        event.Message,
 					CreatedAt:      event.CreatedAt,
 				})
 			default:
-				target.Emit("private_message", privateMessagePayload{Message: event.Message})
+				target.Emit("private_message", dto.PrivateMessagePayload{Message: event.Message})
 			}
 		}
 	}()
@@ -393,23 +342,43 @@ func registerEvents(server *socketio.Server, application *app.App) {
 
 		/*
 			绑定用户事件
-			参数：{ userId: string }
+			参数：{ erp: string, token: string }
 		*/
 		cli.On("bind_user", func(args ...any) {
+			if !limiter.Allow(string(cli.Id())) {
+				cli.Emit("bind_user_error", "rate limit exceeded")
+				return
+			}
+
 			if len(args) == 0 {
-				cli.Emit("bind_user_error", "payload should be object: { userId }")
+				cli.Emit("bind_user_error", "payload should be object: { erp, token }")
 				return
 			}
 			payload, ok := parseBindUserPayload(args[0])
 			if !ok {
-				cli.Emit("bind_user_error", "payload should be object: { userId }")
+				cli.Emit("bind_user_error", "payload should be object: { erp, token }")
 				return
 			}
-
 			if socketService != nil {
-				if err := socketService.BindUser(context.Background(), payload.UserID, string(cli.Id())); err != nil {
-					if errors.Is(err, service.ErrInvalidUserID) {
-						cli.Emit("bind_user_error", "invalid userId")
+				// 判断token合法性，确保用户只能绑定自己的socket连接，防止冒用他人erp进行恶意操作
+				ctx := context.Background()
+				token := payload.Token
+				cacheErp, err := application.LoginTokenStore.GetTokenUserInfoField(ctx, token, "erp")
+				log.Println("cacheErp", cacheErp)
+				if err != nil {
+					log.Printf("token 校验 redis 异常: %v", err)
+					cli.Emit("bind_user_error", "token 校验失败")
+					return
+				}
+				if cacheErp != payload.ERP {
+					log.Printf("token 校验失败，token %s 对应的 erp 是 %s，和请求中提供的 erp %s 不匹配", token, cacheErp, payload.ERP)
+					cli.Emit("bind_user_error", "token 校验失败")
+					return
+				}
+
+				if err := socketService.BindUser(context.Background(), payload.ERP, string(cli.Id())); err != nil {
+					if errors.Is(err, service.ErrInvalidErp) {
+						cli.Emit("bind_user_error", "invalid erp")
 						return
 					}
 
@@ -418,13 +387,13 @@ func registerEvents(server *socketio.Server, application *app.App) {
 					return
 				}
 			}
-			log.Println("bind user:", payload.UserID, "socket:", cli.Id())
-			cli.Emit("bind_user_ok", bindUserOKResponse{UserID: payload.UserID})
+			log.Println("bind user:", payload.ERP, "socket:", cli.Id())
+			cli.Emit("bind_user_ok", dto.BindUserOKResponse{ERP: payload.ERP})
 		})
 
 		/*
 			发送消息给用户事件
-			参数：{ toUserId: string, message: string }
+			参数：{ toERP: string, message: string }
 		*/
 		cli.On("send_to_user", func(args ...any) {
 			if !limiter.Allow(string(cli.Id())) {
@@ -437,7 +406,7 @@ func registerEvents(server *socketio.Server, application *app.App) {
 				return
 			}
 
-			if _, bound := socketService.GetUserIDBySocketID(string(cli.Id())); !bound {
+			if _, bound := socketService.GetErpBySocketID(string(cli.Id())); !bound {
 				cli.Emit("send_to_user_error", "bind_user required")
 				return
 			}
@@ -448,16 +417,31 @@ func registerEvents(server *socketio.Server, application *app.App) {
 			}
 			payload, ok := parseSendToUserPayload(args[0])
 			if !ok {
-				cli.Emit("send_to_user_error", "payload should contain toUserId and message")
+				cli.Emit("send_to_user_error", "payload should contain toERP and message")
+				return
+			}
+			
+			// 判断ToERP是否存在且为好友 记录到数据库，判断用户是否在线，在线则直接发送，否则通过redis pub/sub分发给其他节点
+			ctx:= context.Background()
+			selfErp, _ := socketService.GetErpBySocketID(string(cli.Id()))
+			isFriend, err := application.LoginTokenStore.IsFriendByErp(ctx, selfErp, payload.ToERP)
+			if err != nil {
+				log.Printf("判断好友关系失败: %v", err)
+				cli.Emit("send_to_user_error", "send failed")
+				return
+			}
+			if !isFriend {
+				log.Printf("用户 %s 和 %s 不是好友关系，无法发送消息", selfErp, payload.ToERP)
+				cli.Emit("send_to_user_error", "can only send message to friends")
 				return
 			}
 
-			targetSocketID, err := socketService.ResolveTargetSocketID(context.Background(), payload.ToUserID, payload.Message)
+			targetSocketID, err := socketService.ResolveTargetSocketID(context.Background(), payload.ToERP, payload.Message)
 			if err != nil {
 				switch {
-				case errors.Is(err, service.ErrInvalidTargetUser), errors.Is(err, service.ErrInvalidMessage):
-					cli.Emit("send_to_user_error", "payload should contain toUserId and message")
-				case errors.Is(err, service.ErrTargetUserOffline):
+				case errors.Is(err, service.ErrInvalidTargetErp), errors.Is(err, service.ErrInvalidMessage):
+					cli.Emit("send_to_user_error", "payload should contain toERP and message")
+				case errors.Is(err, service.ErrTargetErpOffline):
 					cli.Emit("send_to_user_error", "target user offline")
 				default:
 					log.Println("resolve target socket failed:", err)
@@ -468,18 +452,18 @@ func registerEvents(server *socketio.Server, application *app.App) {
 
 			target, found := connections.Get(targetSocketID)
 			if found {
-				target.Emit("private_message", privateMessagePayload{Message: payload.Message})
-				cli.Emit("send_to_user_ok", sendToUserOKResponse{ToUserID: payload.ToUserID})
+				target.Emit("private_message", dto.PrivateMessagePayload{Message: payload.Message})
+				cli.Emit("send_to_user_ok", dto.SendToUserOKResponse{ToERP: payload.ToERP})
 				return
 			}
 
-			if err := publishCrossNodePrivateMessage(application, buildPrivateMessageEvent(payload.ToUserID, payload.Message)); err != nil {
+			if err := publishCrossNodePrivateMessage(application, buildPrivateMessageEvent(payload.ToERP, payload.Message)); err != nil {
 				log.Println("publish cross-node private message failed:", err)
 				cli.Emit("send_to_user_error", "send failed")
 				return
 			}
 
-			cli.Emit("send_to_user_ok", sendToUserOKResponse{ToUserID: payload.ToUserID})
+			cli.Emit("send_to_user_ok", dto.SendToUserOKResponse{ToERP: payload.ToERP})
 		})
 
 		/*
@@ -508,13 +492,13 @@ func registerEvents(server *socketio.Server, application *app.App) {
 				return
 			}
 
-			boundUserID, bound := socketService.GetUserIDBySocketID(string(cli.Id()))
+			boundErp, bound := socketService.GetErpBySocketID(string(cli.Id()))
 			if !bound {
 				cli.Emit("send_to_group_error", "bind_user required")
 				return
 			}
 
-			senderUserID, err := strconv.ParseUint(boundUserID, 10, 64)
+			senderUserID, err := strconv.ParseUint(boundErp, 10, 64)
 			if err != nil || senderUserID == 0 {
 				cli.Emit("send_to_group_error", "invalid sender userId")
 				return
@@ -554,9 +538,9 @@ func registerEvents(server *socketio.Server, application *app.App) {
 
 				target, found := connections.Get(targetSocketID)
 				if found {
-					target.Emit("group_message", groupMessagePayload{
+					target.Emit("group_message", dto.GroupMessagePayload{
 						ConversationID: payload.ConversationID,
-						FromUserID:     boundUserID,
+						FromERP:        boundErp,
 						MessageID:      message.ID,
 						Message:        payload.Message,
 						CreatedAt:      message.CreatedAt.UTC().Format(time.RFC3339),
@@ -564,12 +548,12 @@ func registerEvents(server *socketio.Server, application *app.App) {
 					continue
 				}
 
-				if publishErr := publishCrossNodePrivateMessage(application, buildGroupMessageEvent(userIDStr, boundUserID, payload.ConversationID, message.ID, message.CreatedAt.UTC().Format(time.RFC3339), payload.Message)); publishErr != nil {
+				if publishErr := publishCrossNodePrivateMessage(application, buildGroupMessageEvent(userIDStr, boundErp, payload.ConversationID, message.ID, message.CreatedAt.UTC().Format(time.RFC3339), payload.Message)); publishErr != nil {
 					log.Println("publish cross-node group message failed:", publishErr)
 				}
 			}
 
-			cli.Emit("send_to_group_ok", sendToGroupOKResponse{
+			cli.Emit("send_to_group_ok", dto.SendToGroupOKResponse{
 				ConversationID: payload.ConversationID,
 				MessageID:      message.ID,
 				RecipientCount: len(recipients),
