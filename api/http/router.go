@@ -2,10 +2,12 @@ package httpapi
 
 import (
 	"net/http"
+	"time"
 
 	"im_backend/api/http/controller"
 	"im_backend/internal/app"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,8 +19,20 @@ func NewRouter(application *app.App, socketHandler http.Handler) *gin.Engine {
 
 	r := gin.Default()
 
+	// CORS middleware
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
+
 	r.GET("/health", healthController.Health) // 健康检查接口
 	r.GET("/mysql/test-read", mySQLController.TestRead)
+	r.POST("/api/login", userController.Login)
+	r.POST("/api/register", userController.Register)
 	r.GET("/users/:erp", userController.GetByErp)                                 // 获取用户信息接口
 	r.POST("/accounts/apply", userController.ApplyAccount)                        // 申请账号接口
 	r.POST("/friend-requests/apply", userController.ApplyFriendRequest)           // 申请好友接口

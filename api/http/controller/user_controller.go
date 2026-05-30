@@ -89,6 +89,22 @@ func (ctl *UserController) ApplyAccount(c *gin.Context) {
 	ctl.createAccount(c, body, "apply account failed")
 }
 
+// Register 接口（对外注册），与 ApplyAccount 行为相同但错误信息不同
+func (ctl *UserController) Register(c *gin.Context) {
+	if ctl == nil || ctl.app == nil || ctl.app.UserService == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "user service not ready", "code": 40000})
+		return
+	}
+
+	var body dto.ApplyAccountBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request body", "code": 40001})
+		return
+	}
+
+	ctl.createAccount(c, body, "register account failed")
+}
+
 func (ctl *UserController) createAccount(c *gin.Context, body dto.ApplyAccountBody, failedMessage string) {
 	user, err := ctl.app.UserService.ApplyAccount(c.Request.Context(), body)
 	if err != nil {
