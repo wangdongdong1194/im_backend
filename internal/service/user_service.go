@@ -276,6 +276,46 @@ func (s *UserService) AcceptFriendRequest(ctx context.Context, erp string, body 
 		return err
 	}
 
+	// 更新完 DB 后，异步刷新 Redis 中双方的好友列表缓存（best-effort）
+	if s.loginTokenStore != nil {
+		fromUser, _ := s.userRepo.GetByID(ctx, request.FromUserID)
+		toUser, _ := s.userRepo.GetByID(ctx, request.ToUserID)
+		fromErp := ""
+		toErp := ""
+		if fromUser != nil {
+			fromErp = fromUser.Erp
+		}
+		if toUser != nil {
+			toErp = toUser.Erp
+		}
+
+		go func(fromUserID, toUserID uint, fromErp, toErp string) {
+			// 列出 fromUser 的好友 erp
+			fromItems, err := s.friendshipRepo.ListByUser(context.Background(), repository.ListFriendshipsOption{UserID: fromUserID, Offset: 0, Limit: 200})
+			if err == nil {
+				fromErps := make([]string, 0, len(fromItems))
+				for _, it := range fromItems {
+					if fu, err := s.userRepo.GetByID(context.Background(), it.FriendID); err == nil {
+						fromErps = append(fromErps, fu.Erp)
+					}
+				}
+				_ = s.loginTokenStore.SetFriends(context.Background(), fromErp, fromErps, time.Hour)
+			}
+
+			// 列出 toUser 的好友 erp
+			toItems, err := s.friendshipRepo.ListByUser(context.Background(), repository.ListFriendshipsOption{UserID: toUserID, Offset: 0, Limit: 200})
+			if err == nil {
+				toErps := make([]string, 0, len(toItems))
+				for _, it := range toItems {
+					if tu, err := s.userRepo.GetByID(context.Background(), it.FriendID); err == nil {
+						toErps = append(toErps, tu.Erp)
+					}
+				}
+				_ = s.loginTokenStore.SetFriends(context.Background(), toErp, toErps, time.Hour)
+			}
+		}(request.FromUserID, request.ToUserID, fromErp, toErp)
+	}
+
 	return nil
 }
 
@@ -368,15 +408,25 @@ func (s *UserService) Login(ctx context.Context, erp string, password string) (s
 		Username: user.Username,
 		Nickname: "",
 		Phone:    user.Phone,
+		Email:    "",
+		Bio:      "",
 	}
 	if user.Nickname != nil {
 		info.Nickname = *user.Nickname
+	}
+	if user.Email != nil {
+		info.Email = *user.Email
+	}
+	if user.Bio != nil {
+		info.Bio = *user.Bio
 	}
 	values := map[string]interface{}{
 		"erp":      info.ERP,
 		"username": info.Username,
 		"nickname": info.Nickname,
 		"phone":    info.Phone,
+		"email":    info.Email,
+		"bio":      info.Bio,
 	}
 	// 若存在token且未过期，则拒绝登录，要求先登出旧设备（删除旧token），避免重复登录导致数据不一致等问题
 	oldToken, _ := s.loginTokenStore.GetErpToken(ctx, user.Erp)
@@ -445,9 +495,13 @@ func (s *UserService) ListFriends(ctx context.Context, erp string, offset int, l
 					Username: friendUser.Username,
 					Nickname: "",
 					Phone:    friendUser.Phone,
+					Email:    "",
 				}
 				if friendUser.Nickname != nil {
 					ui.Nickname = *friendUser.Nickname
+				}
+				if friendUser.Email != nil {
+					ui.Email = *friendUser.Email
 				}
 				results = append(results, ui)
 			}
@@ -482,9 +536,17 @@ func (s *UserService) ListFriends(ctx context.Context, erp string, offset int, l
 			Username: friendUser.Username,
 			Nickname: "",
 			Phone:    friendUser.Phone,
+			Email:    "",
+			Bio:      "",
 		}
 		if friendUser.Nickname != nil {
 			ui.Nickname = *friendUser.Nickname
+		}
+		if friendUser.Email != nil {
+			ui.Email = *friendUser.Email
+		}
+		if friendUser.Bio != nil {
+			ui.Bio = *friendUser.Bio
 		}
 		results = append(results, ui)
 		friendErps = append(friendErps, friendUser.Erp)

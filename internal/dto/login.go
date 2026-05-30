@@ -15,4 +15,6 @@ type UserInfo struct {
 	Username string `json:"username"`
 	Nickname string `json:"nickname"`
 	Phone    string `json:"phone"`
+	Email    string `json:"email"`
+	Bio      string `json:"bio"`
 }
