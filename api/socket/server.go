@@ -420,9 +420,9 @@ func registerEvents(server *socketio.Server, application *app.App) {
 				cli.Emit("send_to_user_error", "payload should contain toERP and message")
 				return
 			}
-			
+
 			// 判断ToERP是否存在且为好友 记录到数据库，判断用户是否在线，在线则直接发送，否则通过redis pub/sub分发给其他节点
-			ctx:= context.Background()
+			ctx := context.Background()
 			selfErp, _ := socketService.GetErpBySocketID(string(cli.Id()))
 			isFriend, err := application.LoginTokenStore.IsFriendByErp(ctx, selfErp, payload.ToERP)
 			if err != nil {

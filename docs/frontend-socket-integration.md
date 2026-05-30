@@ -176,4 +176,57 @@ socket.on("reply", (msg) => {
 socket.on("disconnect", (reason) => {
   console.log("disconnect", reason);
 });
+
+## HTTP API：认证与好友列表
+
+前端可通过下列 HTTP 接口完成登录/注册/登出与获取好友列表的流程（Socket 仍用于实时消息）。
+
+- 登录
+  - 方法: `POST /api/login`
+  - 请求体: `{ "erp": "your_erp", "password": "pwd" }`
+  - 返回: `200 OK`，body 为 `{ "token": "<jwt-like-token>", "user": { "erp", "username", "nickname", "phone" } }`
+
+- 注册
+  - 方法: `POST /api/register`
+  - 请求体: `{
+      "erp": "new_erp",
+      "username": "name",
+      "password": "pwd",
+      "phone": "1234567890",
+      "nickname": "nick" // 可选
+    }`
+  - 返回: 成功响应包含消息和新用户信息（HTTP 200，或冲突/错误码）。
+
+- 登出
+  - 方法: `POST /api/logout`
+  - 认证: 优先从 `Authorization: Bearer <token>` 头读取 token，若无则可在请求体中提供 `{ "token": "..." }`。
+  - 返回: `{ "message": "ok", "code": 20000 }` 表示登出成功。
+
+- 获取好友列表
+  - 方法: `GET /api/friends?erp=<erp>&offset=0&limit=50`
+  - 参数: `erp`（必需），可选 `offset` 与 `limit`（默认 limit=50，上限 200）。
+  - 返回: `{ "message":"ok","code":20000,"data":[ { "erp":"...","username":"...","nickname":"...","phone":"..." } ] }`
+
+注意：
+
+- 当前后端在 `router` 层已启用 CORS（允许跨域，支持 `Authorization` 头）。如果你的前端部署在固定域名，请考虑仅允许该域以提高安全性。
+- 推荐流程：前端在登录成功后保存返回的 `token`，并在后续的 HTTP 请求中通过 `Authorization: Bearer <token>` 发送；同时在建立 Socket 连接或发送需要鉴权的 Socket 事件时，也把 token 放在连接参数或事件内以便后端校验（参考后端是否要求绑定用户时传 token）。
+
+示例：登录并建立带 token 的 Socket 连接
+
+```js
+// 先登录获得 token
+const res = await fetch('http://127.0.0.1:3003/api/login', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ erp: '1001', password: 'pwd' })
+});
+const { token } = await res.json();
+
+// 用 token 建立 socket，透传 token（视后端 socket 验证方式而定）
+const socket = io('http://127.0.0.1:3003', {
+  path: '/socket.io',
+  auth: { token },
+});
+```
 ```

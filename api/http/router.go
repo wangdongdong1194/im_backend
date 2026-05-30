@@ -31,8 +31,15 @@ func NewRouter(application *app.App, socketHandler http.Handler) *gin.Engine {
 
 	r.GET("/health", healthController.Health) // 健康检查接口
 	r.GET("/mysql/test-read", mySQLController.TestRead)
-	r.POST("/api/login", userController.Login)
-	r.POST("/api/register", userController.Register)
+
+	api := r.Group("/api")
+	{
+		api.POST("/login", userController.Login)
+		api.POST("/register", userController.Register)
+		api.POST("/logout", userController.Logout)
+		api.GET("/friends", userController.ListFriends) // 获取好友列表接口
+	}
+
 	r.GET("/users/:erp", userController.GetByErp)                                 // 获取用户信息接口
 	r.POST("/accounts/apply", userController.ApplyAccount)                        // 申请账号接口
 	r.POST("/friend-requests/apply", userController.ApplyFriendRequest)           // 申请好友接口

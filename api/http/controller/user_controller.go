@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"im_backend/internal/app"
@@ -209,4 +210,79 @@ func (ctl *UserController) HandleFriendRequest(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "ok", "code": 20000})
+}
+
+// Logout 处理登出请求
+func (ctl *UserController) Logout(c *gin.Context) {
+	if ctl == nil || ctl.app == nil || ctl.app.UserService == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "user service not ready", "code": 40000})
+		return
+	}
+
+	// Try to read token from Authorization header: "Bearer <token>"
+	auth := c.GetHeader("Authorization")
+	token := ""
+	if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+		token = strings.TrimSpace(auth[7:])
+	}
+	if token == "" {
+		// Allow token in body as fallback
+		var body struct {
+			Token string `json:"token"`
+		}
+		if err := c.ShouldBindJSON(&body); err == nil {
+			token = strings.TrimSpace(body.Token)
+		}
+	}
+
+	if token == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "missing token", "code": 40001})
+		return
+	}
+
+	if err := ctl.app.UserService.Logout(c.Request.Context(), token); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error(), "code": 40002})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "ok", "code": 20000})
+}
+
+// ListFriends 返回好友列表，支持 query: erp, offset, limit
+func (ctl *UserController) ListFriends(c *gin.Context) {
+	if ctl == nil || ctl.app == nil || ctl.app.UserService == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "user service not ready", "code": 40000})
+		return
+	}
+
+	erp := strings.TrimSpace(c.Query("erp"))
+	if erp == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "missing erp query parameter", "code": 40001})
+		return
+	}
+
+	offset := 0
+	limit := 50
+	if offStr := strings.TrimSpace(c.Query("offset")); offStr != "" {
+		if v, err := strconv.Atoi(offStr); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+	if limStr := strings.TrimSpace(c.Query("limit")); limStr != "" {
+		if v, err := strconv.Atoi(limStr); err == nil && v > 0 {
+			limit = v
+		}
+	}
+
+	friends, err := ctl.app.UserService.ListFriends(c.Request.Context(), erp, offset, limit)
+	if err != nil {
+		if errors.Is(err, service.ErrUserNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"message": "user not found", "code": 40004})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error(), "code": 40003})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "ok", "code": 20000, "data": friends})
 }

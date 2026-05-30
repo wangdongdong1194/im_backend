@@ -7,9 +7,9 @@ import (
 )
 
 var (
-	ErrInvalidErp     = errors.New("invalid erp")
+	ErrInvalidErp       = errors.New("invalid erp")
 	ErrInvalidTargetErp = errors.New("invalid target erp")
-	ErrInvalidMessage    = errors.New("invalid message")
+	ErrInvalidMessage   = errors.New("invalid message")
 	ErrTargetErpOffline = errors.New("target erp offline")
 )
 
@@ -20,15 +20,15 @@ type SocketBindingStore interface {
 }
 
 type SocketService struct {
-	store        SocketBindingStore
-	mu           sync.RWMutex
+	store       SocketBindingStore
+	mu          sync.RWMutex
 	erpToSocket map[string]string
 	socketToErp map[string]string
 }
 
 func NewSocketService(store SocketBindingStore) *SocketService {
 	return &SocketService{
-		store:        store,
+		store:       store,
 		erpToSocket: make(map[string]string),
 		socketToErp: make(map[string]string),
 	}

@@ -43,6 +43,9 @@ type LoginTokenStore interface {
 	SetErpToken(ctx context.Context, erp string, token string, expire time.Duration) error
 	GetErpToken(ctx context.Context, erp string) (string, error)
 	DelErpToken(ctx context.Context, erp string) error
+	// Friend list cache
+	GetFriends(ctx context.Context, erp string) ([]string, error)
+	SetFriends(ctx context.Context, erp string, friends []string, expire time.Duration) error
 }
 
 type UserService struct {
@@ -392,4 +395,107 @@ func (s *UserService) Login(ctx context.Context, erp string, password string) (s
 		return "", dto.UserInfo{}, err
 	}
 	return token, info, nil
+}
+
+// Logout 删除 token 相关信息
+func (s *UserService) Logout(ctx context.Context, token string) error {
+	if s == nil || s.loginTokenStore == nil {
+		return ErrUserServiceNotReady
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return errors.New("invalid token")
+	}
+
+	info, err := s.loginTokenStore.GetTokenUserInfo(ctx, token)
+	if err == nil {
+		if erp, ok := info["erp"]; ok && erp != "" {
+			_ = s.loginTokenStore.DelErpToken(ctx, erp)
+		}
+	}
+
+	if err := s.loginTokenStore.DelTokenUserInfo(ctx, token); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ListFriends 列出用户的好友列表
+func (s *UserService) ListFriends(ctx context.Context, erp string, offset int, limit int) ([]dto.UserInfo, error) {
+	if s == nil || s.userRepo == nil || s.friendshipRepo == nil {
+		return nil, ErrUserServiceNotReady
+	}
+	erp = strings.TrimSpace(erp)
+	if erp == "" {
+		return nil, ErrInvalidFriendERP
+	}
+
+	// 1) try redis cache first
+	if s.loginTokenStore != nil {
+		if cached, err := s.loginTokenStore.GetFriends(ctx, erp); err == nil && len(cached) > 0 {
+			results := make([]dto.UserInfo, 0, len(cached))
+			for _, friendErp := range cached {
+				friendUser, err := s.userRepo.GetByERP(ctx, friendErp)
+				if err != nil {
+					continue
+				}
+				ui := dto.UserInfo{
+					ERP:      friendUser.Erp,
+					Username: friendUser.Username,
+					Nickname: "",
+					Phone:    friendUser.Phone,
+				}
+				if friendUser.Nickname != nil {
+					ui.Nickname = *friendUser.Nickname
+				}
+				results = append(results, ui)
+			}
+			return results, nil
+		}
+	}
+
+	// 2) fallback to MySQL
+	user, err := s.userRepo.GetByERP(ctx, erp)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+
+	items, err := s.friendshipRepo.ListByUser(ctx, repository.ListFriendshipsOption{UserID: user.ID, Offset: offset, Limit: limit})
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]dto.UserInfo, 0, len(items))
+	friendErps := make([]string, 0, len(items))
+	for _, f := range items {
+		friendUser, err := s.userRepo.GetByID(ctx, f.FriendID)
+		if err != nil {
+			// skip missing friend record
+			continue
+		}
+		ui := dto.UserInfo{
+			ERP:      friendUser.Erp,
+			Username: friendUser.Username,
+			Nickname: "",
+			Phone:    friendUser.Phone,
+		}
+		if friendUser.Nickname != nil {
+			ui.Nickname = *friendUser.Nickname
+		}
+		results = append(results, ui)
+		friendErps = append(friendErps, friendUser.Erp)
+	}
+
+	// cache to redis asynchronously (best-effort)
+	if s.loginTokenStore != nil && len(friendErps) > 0 {
+		go func(erps []string) {
+			_ = s.loginTokenStore.SetFriends(context.Background(), erp, erps, time.Hour)
+		}(friendErps)
+	}
+
+	return results, nil
 }

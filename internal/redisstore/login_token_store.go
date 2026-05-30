@@ -43,7 +43,6 @@ func (s *LoginTokenStore) friendKey(erp string) string {
 	return s.prefix + ":" + base + erp
 }
 
-
 func (s *LoginTokenStore) SetTokenUserInfo(ctx context.Context, token string, fields map[string]interface{}, expire time.Duration) error {
 	key := s.tokenUserInfoKey(token)
 	if err := s.client.HSet(ctx, key, fields).Err(); err != nil {
@@ -80,6 +79,37 @@ func (s *LoginTokenStore) GetErpToken(ctx context.Context, erp string) (string, 
 func (s *LoginTokenStore) DelErpToken(ctx context.Context, erp string) error {
 	key := s.erpTokenKey(erp)
 	return s.client.Del(ctx, key).Err()
+}
+
+// GetFriends 从 redis 中读取某用户的好友列表（set），若不存在返回空切片且不报错
+func (s *LoginTokenStore) GetFriends(ctx context.Context, erp string) ([]string, error) {
+	key := s.friendKey(erp)
+	members, err := s.client.SMembers(ctx, key).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+	return members, nil
+}
+
+// SetFriends 将好友列表写入 redis set 并设置过期时间
+func (s *LoginTokenStore) SetFriends(ctx context.Context, erp string, friends []string, expire time.Duration) error {
+	key := s.friendKey(erp)
+	if len(friends) == 0 {
+		// ensure key removed when empty
+		return s.client.Del(ctx, key).Err()
+	}
+	// Use SAdd to add multiple members
+	members := make([]interface{}, 0, len(friends))
+	for _, f := range friends {
+		members = append(members, f)
+	}
+	if err := s.client.SAdd(ctx, key, members...).Err(); err != nil {
+		return err
+	}
+	return s.client.Expire(ctx, key, expire).Err()
 }
 
 // 判断两个用户是否为好友关系，判断逻辑：将两个用户的erp拼接成一个字符串（按照字典序升序排序），查询redis中是否存在key "prefix:friend:拼接字符串"，存在则为好友关系
